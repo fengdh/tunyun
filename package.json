@@ -1,0 +1,29 @@
+{
+  "name": "tunyun",
+  "version": "0.1.0",
+  "description": "吞云 for 微盘：批量下载+多线程+断点续传",
+  "main": "main.js",
+  "author": "funbook@Hi!PDA - http://www.hi-pda.com/forum/space.php?uid=709426",
+  "license": "MIT",
+  "scripts": {
+    "mining": "electron main-mining.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fengdh/vdisk-exploiter"
+  },
+  "keywords": [
+    "Electron",
+    "vdisk",
+    "weibo",
+    "ebook",
+    "download"
+  ],
+  "homepage": "http://www.hi-pda.com/forum/space.php?uid=709426",
+  "devDependencies": {
+    "electron-prebuilt": "^0.37.0",
+        "mt-downloader": "^1.4.1",
+               "jquery": "^2.1.4",
+                   "d3": "^4.0.0"
+  }
+}
