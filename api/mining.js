@@ -10,18 +10,19 @@ function report(err) {
   err && console.trace(err);
 }
 
-exports.prospect = function($, options) {
+function scan($, options) {
   
   const DEFAULTS = { title: '执行参数',
                      start: 1,
-                     pages: 100,
+                     pages: -1,
                     maxReq: 50,
                  blockSize: 5000,
-                filePrefix: 'UIDS_',
+                filePrefix: 'ore_',
                  fileStart: 0,
                  minShares: -1,
                    minFans: 32,
                     accept: null,
+                     retry: 3,
                   scanType: 'full', // or 'delta'
                   };
   
@@ -29,7 +30,7 @@ exports.prospect = function($, options) {
 
   var $loader = $('<div>'),
       page = options.start,
-      max  = page + options.pages - 1,
+      max  = options.pages > 0 ? page + options.pages - 1 : -1,
       list = [], arr = [], 
       cnt = 0, fcnt = 0,
       accept = options.accept;
@@ -44,7 +45,7 @@ exports.prospect = function($, options) {
   
   function check(done) {
     if (arr.length >= options.blockSize || done) {
-      var fname = options.filePrefix + ('000' + fcnt++).slice(-4) + '.txt',
+      var fname = options.filePrefix + ('00000000' + fcnt++).slice(-8) + '.txt',
           content = JSON.stringify(arr.map(v => v.uid));
 
       console.log('保存至文件: ', fname, '\t 含用户数: ', arr.length);
@@ -68,9 +69,9 @@ exports.prospect = function($, options) {
     }).length;
   }
 
-  function* users() {
+  function* loop() {
     let more = true;
-    while (more && page < max) {
+    while (more && (page < max || max < 0)) {
       more = yield go();
       console.log('more?', more);
     }
@@ -90,22 +91,71 @@ arr = list;
   $.ajaxSetup({cache: false});
   
   function go() {
-    var jobs = [], from = page, to = Math.min(from + options.maxReq, max + 1);
+    var req = [], jobs, failed = [], from = page, to = from + options.maxReq;
+    to = max > 0 ? Math.min(to, max + 1) : to;
     while (page < to) {
-      jobs.push({url: 'http://m.panduoduo.net/u/vdisk/' + page++});
+      if (page % 13 === 3) {
+        req.push({url: 'http://m.panduoduo.net/u/disk/' + page++ + 'abc'});
+        continue;
+      }
+      req.push({url: 'http://m.panduoduo.net/u/vdisk/' + page++});
     }
     console.log(`准备爬取第${from}～${to - 1}页...`);
-    jobs = jobs.map((j, i) => {
-            var d = $.Deferred(), jqXHR = $.ajax(j);
-            jqXHR.then(
-              (html) => d.resolve(parse(html) === 0 ? jobs.slice(i + 1).forEach(j => j.xhr.abort()) && !console.log(`abort page after ${from + i}`) : false),
-              (xhr, msg, err) => d.resolve(true) && !console.log(`${err}: at page ${from + i}`));
-            return d.promise({xhr: jqXHR});
-          });
+    jobs = req.map((j, i) => {
+                var d = $.Deferred(), jqXHR; 
+                jqXHR = $.ajax(j);
+              jqXHR.then(
+                (html) => d.resolve(parse(html) === 0 ? console.log(`abort page after ${from + i}`) | jobs.slice(i + 1).forEach(j => j.xhr.abort()) : false),
+                (xhr, msg, err) => {
+                      if (err !== 'abort') {
+                        console.info('push failed req:', req[i])
+                        failed.push(req[i]);
+                        d.resolve(false);
+                      } else {
+                        console.log(`${err}: at page ${from + i}`);
+                        d.resolve(true);
+                      }
+                });
+                return d.promise({xhr: jqXHR});
+              });
     
-    return $.when.apply(null, jobs).then((...results) => !results.some(d => d));
+    return $.when.apply(null, jobs)
+            .then((...results) => {
+                if (failed.length > 0) {
+                  console.warn('retry', failed);
+                }
+                return !results.some(d => d);
+              });
+    
   }
-
+  
+  // 有数量限定的执行令牌池，用来限定并发请求的数量避免负荷过大
+  var pool = (function create_pool(size) {
+    var used = 0, pending = [];
+    
+    function run(makePromise) {
+      var wait = $.Deferred();
+      used++ < size ? wait.resolve(used) : pending.push(wait);
+      
+      function free() {
+        if (used > 0) {
+          pending.length > 0 && pending.shift().resolve(used);
+          used--;
+        }
+      }
+      
+      return wait.then(makePromise).then(promise => promise.always(free));
+    }
+    
+    return run;    
+  })(options.maxReq);
+  
+  // 封装$.ajax()调用，在并发执行的同时通过令牌池来限制请求符合，提高转存成功率
+  function $ajax() {
+    let args = [].slice(arguments);
+    return pool(() => $.ajax.apply(null, args));
+  }
+  
   function chain(gen, initial) {    
     function run(input) {
       var output = gen.next(input);
@@ -116,10 +166,13 @@ arr = list;
     
     return run(initial);
   }
-  
-  return chain(users());
+    
+  return chain(loop());
 }
-  
+
+module.exports = {
+  scan: scan
+}
 
 // END OF CLOSED SCOPE
 })();
