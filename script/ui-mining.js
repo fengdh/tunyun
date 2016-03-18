@@ -13,8 +13,14 @@ window.jQuery = window.$ = require('jquery');
   }
   console.info('states', states);
 
-  
+  var mineMachine = require('./api/vdisk');
+  if (states.delta) {
+    // delta scan
+  } else {
+    // full scan
+    mineMachine.scan($, {start: 4781, pages: -1})
+  }
   //
-  var users = require('./api/vdisk').prospect($);
+  
   
 })();
