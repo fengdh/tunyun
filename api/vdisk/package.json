@@ -1,0 +1,18 @@
+{
+  "name": "vdisk-mining",
+  "version": "1.0.0",
+  "description": "Mining geeks on vdisk.weibo.com",
+  "main": "mining.js",
+  "scripts": {
+    "test": "test"
+  },
+  "keywords": [
+    "vdisk",
+    "cloud",
+    "share",
+    "ebook",
+    "weibo"
+  ],
+  "author": "funbook@Hi!PDA - http://www.hi-pda.com/forum/space.php?uid=709426",
+  "license": "MIT"
+}
