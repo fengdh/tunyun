@@ -3,7 +3,7 @@
 ;(function() {
 // END OF CLOSED SCOPE
 
-const fs = require('fs'), gadget = require('../ryn.gadget.js');
+const fs = require('fs'), gadget = require('../ryn.gadget.js'), ext = require('path').extname;
 var saved;
 
 function report(err) {
@@ -33,22 +33,107 @@ function scan($, options) {
       max  = options.pages > 0 ? page + options.pages : -1,
       arr = [], 
       cnt = 0, fcnt = 0,
-      accept = options.accept,
+//      accept = options.accept,
       marker = {},
-      parsePage;
+      isWeiboUser = (user) => user.share === 0 && user.name === `u${user.uid}`,
+      parsePage,
+      checkUser;
+
+  
+  var pool1 = gadget.createPromisePool(options.maxReq, 5);
+  var pool2 = gadget.createPromisePool(options.maxReq, 5);
+  var req = {}, failed = [], from = page, stop;
+  var progress = {count: 0, done: 0}, allDone = $.Deferred();
+  
+  
+// /^u[0-9]+$/.test(item.name)
     
-  if (!accept) {
-    if (options.minShares < 0) {
-      accept = item => item.fan >= options.minFans || (item.share === 0 && /^u[0-9]+$/.test(item.name));
-    } else {
-      accept = item => item.fan >= options.minFans || item.share >= options.minShares || (item.share === 0 && /^u[0-9]+$/.test(item.name));
+//  if (!accept) {
+//    if (options.minShares < 0) {
+//      accept = user => user.fan >= options.minFans || isWeiboUser(user);
+//    } else {
+//      accept = user => user.fan >= options.minFans || user.share >= options.minShares || isWeiboUser(user);
+//    }
+//  }
+  
+  checkUser = (user) => {
+    pool2.run( () => $.ajax({url: `http://m.panduoduo.net/u/vdisk-${user.uid}`}))
+         .then((html) => { 
+//                  console.log(JSON.stringify(parseShares(html),null, '\t')); 
+                  user.detail = parseShare(html);
+                  accept(user) && (arr.push(user), 
+                                   console.log(arr.length));
+                  check();
+               },
+               (xhr, msg, err) => {});
+  }
+  
+  function accept(user) {
+    let share = user.detail, folders = share['目录'] || [], 
+        pages = +share.pages || 1,
+        estimate = (pages - 1) * 60;
+    folders = folders.filter( d => Rules.rejectFolders.indexOf(d) < 0);
+    if (folders.length === 0) {
+      if (share.len + estimate < Rules.minShare) {
+        return false;
+      }
+      let docs = share['其它'] || [];
+      if (docs.filter( d => typeof d !== 'string' && d.size > Rules.largFile).length > 0) {
+        return true;
+      }
+
+      docs.map(d => d.title || d);
+      
+      docs = docs.concat(share['文档'] || []);
+      let len = docs.filter( d => Rules.acceptDocs.indexOf(ext(d).slice(1)) >= 0 ).length;
+      if (len === 0 || (len < Rules.minShare && pages < 2)) {
+        return false;
+      } else {
+        return true;
+      }
     }
+    return true;
+  }
+  
+  function parseShare(html) {
+    let $page = $(html).find('.uk-page'),
+        $list = $page.find('ul.list > li'),
+        hasMorePages = $page.find('.page-list').length > 0,
+        type = {};
+    
+    $list.each((i, li) => {
+      let $t, txt, title;
+      $t = $(li).find('.content > a:first-child');
+      title = $t.attr('title');
+      
+      $t = $(li).find('.tag');
+      txt = $t.text().trim();
+      if (txt === '其它') {
+        let arr = $(li).find('.list-content').contents().slice(1, -1).text().split(/[\u00A0\u0020]+/);
+        if (arr.length > 1 && arr[2] === '---') {
+          txt = '目录';
+        } else {
+          // potential large file
+          if (arr[3] === 'MB') {
+            title = {title: title, size: +arr[2]};
+          }
+        }
+      }
+      type[txt] = (type[txt] || []).concat(title);
+      
+    });
+    let $pl = $page.find(('.page-list'));
+    if ($pl.length > 0) {
+      type.pages = +$pl.find('br')[0].nextSibling.nodeValue.match(/第(\d+)\/(\d+)页/)[2];
+    }
+    type.len = $list.length;
+    return type;    
   }
   
   function check(done) {
     if (arr.length >= options.blockSize || done) {
       var fname = options.filePrefix + ('00000000' + fcnt++).slice(-8) + '.txt',
-          content = JSON.stringify(arr.map(v => v.uid));
+          content = JSON.stringify(arr, null, '\t');
 
       console.info('保存至文件: ', fname, '\t 含用户数: ', arr.length);
       cnt += arr.length;
@@ -59,22 +144,23 @@ function scan($, options) {
   
   function parseItem(index, e) {
     let $e = $(e), $a = $e.children('a'), $d = $e.find('.list-content > b'),
-        item = { uid: +$a.attr('href').slice(9), 
+        user = { uid: +$a.attr('href').slice(9), 
                 name:  $a.attr('title').slice(0, -3),
                share: +$d[0].innerText || 0, 
               follow: +$d[1].innerText || 0, 
                  fan: +$d[2].innerText || 0 };
-    accept(item) && arr.push(item);
-    return item;
+//    accept(item) && arr.push(item);
+    checkUser(user);
+    return user;
   }
   
-  function parseOtherPage(content) {
-    return $(content).find('li > .content').each(parseItem).length;
+  function parseOtherPage(html) {
+    return $(html).find('li > .content').each(parseItem).length;
   }
   
-  function parseFirstPage(content) {
+  function parseFirstPage(html) {
     parsePage = parseOtherPage;
-    return $(content).find('li > .content').each(function(index, e) {
+    return $(html).find('li > .content').each(function(index, e) {
           let item = parseItem(index, e);
           if (index === 0) { marker.head = item.uid }
     }).length;
@@ -89,10 +175,6 @@ function scan($, options) {
     options.fileStart = fcnt;
     saved = options;
   }
-  
-  var pool = gadget.createPromisePool(options.maxReq, 5);
-  var req = {}, failed = [], from = page, stop;
-  var progress = {count: 0, done: 0}, allDone = $.Deferred();
   
   function checkAllDone() {
     process.nextTick(() => {
@@ -123,7 +205,7 @@ function scan($, options) {
     while (failed.length > 0) {
       let r = failed.shift();
       if (r.retry++ < options.retry) {
-        pool.run(r);
+        pool1.run(r);
       } else {
         console.error(`Failed after retrying ${options.retry} times to load page #${r.key}`);
         stop = true;
@@ -131,7 +213,6 @@ function scan($, options) {
       }
     }
   }
-  
     
   function more(free) {
     if (stop || free > 0) {
@@ -145,34 +226,30 @@ function scan($, options) {
       while (page < to && !stop) {
         let key = page + '',
             args = {url: 'http://m.panduoduo.net/u/vdisk/' + page++};
-// DELETE ME!
-//if (page % 13 === 3)
-//    args = {url: 'http://m.panduoduo.net/u-vdisk/' + key};
 
-        pool.run(req[key] = () => { 
+        pool1.run(req[key] = () => { 
               let xhr = req[key].xhr = $.ajax(args);
               xhr.then(
                 (html) => {
                       delete req[key];
-                      if (!stop) {
-                        if (parsePage(html) === 0) {
-                          stop = true;
-                          abortPageAfter(key);
-                        } else {
-                          check();
-                        }
-                      }        
+                      if (parsePage(html) === 0) {
+                        stop = true;
+                        abortPageAfter(key);
+                      } else {
+                        check();
+                      }
                     },
                 (xhr, msg, err) => {
                       console.warn(key, msg);
-                      if (err !== 'abort') {
+                      if (err === 'abort') {
+                        delete req[key];
+                      } else {
                         let r = req[key];
                         r.key = key;
                         r.retry = (r.retry || 0)
                         delete r.xhr;
                         failed.push(r);
-                      }
-                      delete req[key];
+                      } 
                     }
               ).always(() => {progress.done++; checkAllDone()});
             return xhr;
@@ -183,11 +260,21 @@ function scan($, options) {
   }
   
   $.ajaxSetup({cache: false});
-  pool.on('expect-more', more);
-  pool.on('will-makePromise', () => progress.count++);
-  pool.emit('expect-more', options.maxReq);
+  pool1.on('expect-more', more);
+  pool1.on('will-makePromise', () => progress.count++);
+  pool1.emit('expect-more', options.maxReq);
   
-  allDone.then(whenDone);
+//  allDone.then(whenDone);
+  
+  scan.whenDone = whenDone;
+}
+  
+let Rules = {
+  'rejectFolders': '文档|我的文档|视频|电影|音乐|图片|我的图片|手机备份|game|music|专辑|专辑歌曲|歌曲|游戏|应用|分享|分享文件|共享资料文件夹|PPT模板|表情包'.split('|'),
+ 'acceptCategory': '其它',
+     'acceptDocs': 'pdf|mobi|azw3|epub|chm|azw|prc|kfx|ebk3|kepub|caj|umd|pdg|wdl|ceb|nlc|ibooks|lrf|fb2|lit|pdb|rtf|'.split('|'),
+       'minShare': 50,
+      'largeFile': 64, // MB
 }
 
 module.exports = {

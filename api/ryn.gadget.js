@@ -8,12 +8,13 @@
     waitLen = Math.max(0, waitLen || 0);
 
     function release() {
+      let free = size - used + waitLen;
       if (used > 0) {
         pending.length > 0 && pending.shift().resolve(used) 
         used--;
-        if (pending.length !== 0) { return }
+        if (pending.length !== 0) { free = 0 } else { free++ }
       }
-      process.nextTick(() => emitter.emit('expect-more', size - used + waitLen));
+      process.nextTick(() => emitter.emit('expect-more', free));
       
       used == 0 && pending.length === 0 && emitter.emit('empty');
     }
@@ -37,7 +38,7 @@
       return wait.then(() => {
         emitter.emit('will-makePromise');
         let promise = makePromise();
-        emitter.emit('done-makePromise');
+        emitter.emit('after-makePromise');
         promise.always(release);
         return promise;
       });

@@ -18,7 +18,9 @@ window.jQuery = window.$ = require('jquery');
     // delta scan
   } else {
     // full scan
-    mineMachine.scan($, {start: 4781, pages: -1})
+//    mineMachine.scan($, {start: 4781, pages: -1})
+    var scan = window.scan = mineMachine.scan;
+    scan($, {start: 1, pages: 50, blockSize: 5000})
   }
   //
   
