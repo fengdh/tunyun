@@ -109,8 +109,8 @@ function scan($, options) {
       $t = $(li).find('.tag');
       txt = $t.text().trim();
       if (txt === '其它') {
-        let arr = $(li).find('.list-content').contents().slice(1, -1).text().split(/[\u00A0\u0020]+/);
-        if (arr.length > 1 && arr[2] === '---') {
+        let arr = $(li).find('.list-content').contents().not('span,a').text().trim().split(/[\u00A0\u0020]+/);
+        if (arr.length > 1 && arr[1] === '---') {
           txt = '目录';
         } else {
           // potential large file
@@ -271,7 +271,6 @@ function scan($, options) {
   
 let Rules = {
   'rejectFolders': '文档|我的文档|视频|电影|音乐|图片|我的图片|手机备份|game|music|专辑|专辑歌曲|歌曲|游戏|应用|分享|分享文件|共享资料文件夹|PPT模板|表情包'.split('|'),
- 'acceptCategory': '其它',
      'acceptDocs': 'pdf|mobi|azw3|epub|chm|azw|prc|kfx|ebk3|kepub|caj|umd|pdg|wdl|ceb|nlc|ibooks|lrf|fb2|lit|pdb|rtf|'.split('|'),
        'minShare': 50,
       'largeFile': 64, // MB
